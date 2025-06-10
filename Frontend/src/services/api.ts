@@ -98,9 +98,9 @@ interface DashboardStats {
 }
 
 const API_URL = window.cordova
-  ? 'https://lblibrary.onrender.com/api'
+  ? 'https://udaanlibrary.onrender.com/api'
   : process.env.NODE_ENV === 'production'
-    ? 'https://lblibrary.onrender.com/api'
+    ? 'https://udaanlibrary.onrender.com/api'
     : 'http://localhost:3000/api';
 
 const apiClient = axios.create({
