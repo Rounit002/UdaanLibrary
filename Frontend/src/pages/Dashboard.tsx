@@ -72,6 +72,7 @@ const Dashboard: React.FC = () => {
         expiredMemberships: Number(expiredMembershipsResp) || 0,
       });
 
+      // This API call now gets its data from the student_membership_history table
       const financialResponse = await api.getDashboardStats(
         selectedBranchId ? { branchId: selectedBranchId } : undefined
       ).catch(() => ({

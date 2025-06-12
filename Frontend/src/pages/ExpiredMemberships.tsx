@@ -21,7 +21,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import Select from 'react-select';
 
-// Assuming your api.ts file exports these interfaces
+// The Student interface includes all fields needed for the form
 interface Student {
   id: number;
   name: string;
@@ -37,6 +37,8 @@ interface Student {
   online?: number;
   securityMoney?: number;
   remark?: string;
+  branchId?: number;
+  branchName?: string;
 }
 
 interface Seat {
@@ -66,8 +68,10 @@ const ExpiredMemberships = () => {
   const [phoneInput, setPhoneInput] = useState<string>('');
   const [shiftOptions, setShiftOptions] = useState<any[]>([]);
   const [seatOptions, setSeatOptions] = useState<any[]>([]);
+  const [branchOptions, setBranchOptions] = useState<any[]>([]);
   const [selectedShift, setSelectedShift] = useState<any>(null);
   const [selectedSeat, setSelectedSeat] = useState<any>(null);
+  const [selectedBranch, setSelectedBranch] = useState<any>(null);
   const [totalFee, setTotalFee] = useState<string>('');
   const [cash, setCash] = useState<string>('');
   const [online, setOnline] = useState<string>('');
@@ -80,15 +84,17 @@ const ExpiredMemberships = () => {
     (async () => {
       setLoading(true);
       try {
-        // More efficient: fetch only expired members directly
-        const [studentsResp, shiftsResp] = await Promise.all([
-          api.getExpiredMemberships(),
-          api.getSchedules(),
+        // Fetch all necessary data in parallel for efficiency
+        const [studentsResp, shiftsResp, branchesResp] = await Promise.all([
+          api.getExpiredMemberships(), // Fetches expired students with seat/shift info
+          api.getSchedules(), // Fetches all shifts/schedules for dropdowns
+          api.getBranches(), // Fetches all branches for dropdown
         ]);
 
-        // No more client-side filtering needed
+        // Populate state with fetched data
         setStudents(studentsResp.students);
         setShiftOptions(shiftsResp.schedules.map((shift: any) => ({ value: shift.id, label: shift.title })));
+        setBranchOptions(branchesResp.map((branch: any) => ({ value: branch.id, label: branch.name })));
       } catch (e: any) {
         console.error('Error fetching data:', e);
         toast.error(e.message || 'Failed to fetch expired memberships.');
@@ -123,34 +129,45 @@ const ExpiredMemberships = () => {
     }
   }, [selectedShift, selectedStudent]);
 
+  /**
+   * This function is called when the "Renew" button is clicked.
+   * It populates the entire renewal form with the selected student's previous data.
+   */
   const handleRenewClick = (student: Student) => {
     setSelectedStudent(student);
+    // Set new membership dates, defaulting to one month from today
     setStartDate(new Date());
     setEndDate(addMonths(new Date(), 1));
+
+    // Pre-fill all form fields with the student's existing data
     setEmailInput(student.email || '');
     setPhoneInput(student.phone || '');
+    setSelectedBranch(student.branchId ? { value: student.branchId, label: student.branchName } : null);
     setSelectedShift(student.shiftId ? { value: student.shiftId, label: student.shiftTitle } : null);
     setSelectedSeat(student.seatId ? { value: student.seatId, label: student.seatNumber } : null);
     setTotalFee(student.totalFee ? student.totalFee.toString() : '');
-    setCash(''); // Reset payment fields on open
-    setOnline('');
+    setCash(student.cash ? student.cash.toString() : '');
+    setOnline(student.online ? student.online.toString() : '');
     setSecurityMoney(student.securityMoney ? student.securityMoney.toString() : '');
     setRemark(student.remark || '');
+    
     setRenewDialogOpen(true);
   };
 
   const handleRenewSubmit = async () => {
-    if (!selectedStudent || !startDate || !endDate || !emailInput || !phoneInput || !selectedShift || !totalFee) {
+    if (!selectedStudent || !startDate || !endDate || !emailInput || !phoneInput || !selectedShift || !totalFee || !selectedBranch) {
       toast.error('Please fill all required fields');
       return;
     }
 
     try {
+      // Send all data from the form to the renewStudent API endpoint
       await api.renewStudent(selectedStudent.id, {
         membershipStart: format(startDate, 'yyyy-MM-dd'),
         membershipEnd: format(endDate, 'yyyy-MM-dd'),
         email: emailInput,
         phone: phoneInput,
+        branchId: selectedBranch.value,
         shiftIds: [selectedShift.value], // API expects an array
         seatId: selectedSeat ? selectedSeat.value : undefined,
         totalFee: parseFloat(totalFee),
@@ -163,7 +180,7 @@ const ExpiredMemberships = () => {
       toast.success(`Membership renewed for ${selectedStudent.name}`);
       setRenewDialogOpen(false);
 
-      // Refresh the list after renewal
+      // Refresh the list of expired students after successful renewal
       const resp = await api.getExpiredMemberships();
       setStudents(resp.students);
 
@@ -173,6 +190,7 @@ const ExpiredMemberships = () => {
     }
   };
 
+  // Dynamically calculate payment details for display
   const cashAmount = parseFloat(cash) || 0;
   const onlineAmount = parseFloat(online) || 0;
   const paid = cashAmount + onlineAmount;
@@ -217,7 +235,7 @@ const ExpiredMemberships = () => {
                   .filter(
                     (s) =>
                       s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                      s.phone?.includes(searchTerm)
+                      (s.phone && s.phone.includes(searchTerm))
                   )
                   .map((student) => (
                     <TableRow key={student.id}>
@@ -261,6 +279,7 @@ const ExpiredMemberships = () => {
           )}
         </div>
 
+        {/* Renewal Dialog */}
         <Dialog open={renewDialogOpen} onOpenChange={setRenewDialogOpen}>
           <DialogContent className="max-h-[80vh] overflow-y-auto">
             <DialogHeader>
@@ -292,6 +311,15 @@ const ExpiredMemberships = () => {
                   type="tel"
                   value={phoneInput}
                   onChange={(e) => setPhoneInput(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm">Branch</label>
+                <Select
+                  options={branchOptions}
+                  value={selectedBranch}
+                  onChange={setSelectedBranch}
+                  placeholder="Select Branch"
                 />
               </div>
               <div>

@@ -37,6 +37,9 @@ interface SelectOption {
 
 interface FormData {
   name: string;
+  registrationNumber: string;
+  fatherName: string;
+  aadharNumber: string;
   email: string;
   phone: string;
   address: string;
@@ -58,6 +61,9 @@ const AddStudentForm: React.FC = () => {
   const navigate = useNavigate();
   const [formData, setFormData] = useState<FormData>({
     name: '',
+    registrationNumber: '',
+    fatherName: '',
+    aadharNumber: '',
     email: '',
     phone: '',
     address: '',
@@ -224,6 +230,9 @@ const AddStudentForm: React.FC = () => {
 
       const studentData = {
         name: formData.name,
+        registrationNumber: formData.registrationNumber,
+        fatherName: formData.fatherName,
+        aadharNumber: formData.aadharNumber,
         email: formData.email,
         phone: formData.phone,
         address: formData.address.trim() || '',
@@ -268,6 +277,45 @@ const AddStudentForm: React.FC = () => {
             id="name"
             name="name"
             value={formData.name}
+            onChange={handleChange}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-300"
+          />
+        </div>
+        <div>
+          <label htmlFor="registrationNumber" className="block text-sm font-medium text-gray-700 mb-1">
+            Registration Number
+          </label>
+          <input
+            type="text"
+            id="registrationNumber"
+            name="registrationNumber"
+            value={formData.registrationNumber}
+            onChange={handleChange}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-300"
+          />
+        </div>
+        <div>
+          <label htmlFor="fatherName" className="block text-sm font-medium text-gray-700 mb-1">
+            Father's Name
+          </label>
+          <input
+            type="text"
+            id="fatherName"
+            name="fatherName"
+            value={formData.fatherName}
+            onChange={handleChange}
+            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-300"
+          />
+        </div>
+        <div>
+          <label htmlFor="aadharNumber" className="block text-sm font-medium text-gray-700 mb-1">
+            Aadhar Number
+          </label>
+          <input
+            type="text"
+            id="aadharNumber"
+            name="aadharNumber"
+            value={formData.aadharNumber}
             onChange={handleChange}
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-300"
           />

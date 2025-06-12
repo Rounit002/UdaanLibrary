@@ -24,6 +24,9 @@ module.exports = (pool) => {
           s.id,
           s.name,
           s.phone,
+          s.registration_number,
+          s.father_name,
+          s.aadhar_number,
           TO_CHAR(s.membership_end, 'YYYY-MM-DD') AS membership_end,
           TO_CHAR(s.created_at, 'YYYY-MM-DD') AS created_at,
           CASE
@@ -34,7 +37,7 @@ module.exports = (pool) => {
            FROM seat_assignments sa
            LEFT JOIN seats ON sa.seat_id = seats.id
            WHERE sa.student_id = s.id
-           ORDER BY sa.id
+           ORDER BY sa.id DESC
            LIMIT 1) AS seat_number
         FROM students s
       `;
@@ -89,16 +92,29 @@ module.exports = (pool) => {
     }
   });
 
-  // GET expired students (dynamically)
+  // GET expired students (dynamically) - UPDATED to include shift and seat
   router.get('/expired', checkAdminOrStaff, async (req, res) => {
     try {
       const { branchId } = req.query;
       const branchIdNum = branchId ? parseInt(branchId, 10) : null;
-      let query = withCalculatedStatus();
+      let query = `
+        SELECT
+            s.*,
+            b.name as branch_name,
+            (SELECT sa_latest.shift_id FROM seat_assignments sa_latest WHERE sa_latest.student_id = s.id ORDER BY sa_latest.id DESC LIMIT 1) as shift_id,
+            (SELECT sch.title FROM seat_assignments sa_latest JOIN schedules sch ON sa_latest.shift_id = sch.id WHERE sa_latest.student_id = s.id ORDER BY sa_latest.id DESC LIMIT 1) as shift_title,
+            (SELECT sa_latest.seat_id FROM seat_assignments sa_latest WHERE sa_latest.student_id = s.id ORDER BY sa_latest.id DESC LIMIT 1) as seat_id,
+            (SELECT st.seat_number FROM seat_assignments sa_latest JOIN seats st ON sa_latest.seat_id = st.id WHERE sa_latest.student_id = s.id ORDER BY sa_latest.id DESC LIMIT 1) as seat_number,
+            CASE
+                WHEN s.membership_end < CURRENT_DATE THEN 'expired'
+                ELSE 'active'
+            END AS status
+        FROM students s
+        LEFT JOIN branches b ON s.branch_id = b.id
+        WHERE s.membership_end < CURRENT_DATE
+      `;
       const params = [];
       
-      query += ` WHERE s.membership_end < CURRENT_DATE`;
-
       if (branchIdNum) {
         query += ` AND s.branch_id = $1`;
         params.push(branchIdNum);
@@ -227,6 +243,9 @@ module.exports = (pool) => {
           s.name,
           s.email,
           s.phone,
+          s.registration_number,
+          s.father_name,
+          s.aadhar_number,
           s.membership_end,
           CASE
             WHEN s.membership_end < CURRENT_DATE THEN 'expired'
@@ -273,7 +292,8 @@ module.exports = (pool) => {
 
       const {
         name, email, phone, address, branch_id, membership_start, membership_end,
-        total_fee, amount_paid, shift_ids, seat_id, cash, online, security_money, remark, profile_image_url
+        total_fee, amount_paid, shift_ids, seat_id, cash, online, security_money, remark, profile_image_url,
+        registration_number, father_name, aadhar_number // New fields
       } = req.body;
 
       console.log('Received request body for POST /students:', req.body);
@@ -357,17 +377,20 @@ module.exports = (pool) => {
 
       console.log('Inserting into students table with values:', {
         name, email, phone, address, branchIdNum, membership_start, membership_end,
-        feeValue, paidValue, dueAmount, cashValue, onlineValue, securityMoneyValue, remark, profile_image_url, status
+        feeValue, paidValue, dueAmount, cashValue, onlineValue, securityMoneyValue, remark, profile_image_url, status,
+        registration_number, father_name, aadhar_number
       });
       const result = await client.query(
         `INSERT INTO students (
           name, email, phone, address, branch_id, membership_start, membership_end,
-          total_fee, amount_paid, due_amount, cash, online, security_money, remark, profile_image_url, status
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+          total_fee, amount_paid, due_amount, cash, online, security_money, remark, profile_image_url, status,
+          registration_number, father_name, aadhar_number
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
         RETURNING *`,
         [
           name, email, phone, address, branchIdNum, membership_start, membership_end,
-          feeValue, paidValue, dueAmount, cashValue, onlineValue, securityMoneyValue, remark || null, profile_image_url || null, status
+          feeValue, paidValue, dueAmount, cashValue, onlineValue, securityMoneyValue, remark || null, profile_image_url || null, status,
+          registration_number || null, father_name || null, aadhar_number || null
         ]
       );
       const student = result.rows[0];
@@ -393,14 +416,16 @@ module.exports = (pool) => {
           total_fee, amount_paid, due_amount,
           cash, online, security_money, remark,
           seat_id, shift_id, branch_id,
+          registration_number, father_name, aadhar_number,
           changed_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW())`,
         [
           student.id, student.name, student.email, student.phone, student.address,
           student.membership_start, student.membership_end, student.status,
           student.total_fee, student.amount_paid, student.due_amount,
           student.cash, student.online, student.security_money, student.remark || '',
-          seatIdNum, firstShiftId, branchIdNum
+          seatIdNum, firstShiftId, branchIdNum,
+          student.registration_number, student.father_name, student.aadhar_number
         ]
       );
 
@@ -428,29 +453,29 @@ module.exports = (pool) => {
     }
   });
 
-  // PUT update a student
+ // PUT update a student
   router.put('/:id', checkAdminOrStaff, async (req, res) => {
-    const client = await pool.connect(); // Use a transaction to ensure consistency
+    const client = await pool.connect();
     try {
-      await client.query('BEGIN'); // Start transaction
+      await client.query('BEGIN');
 
       const id = parseInt(req.params.id, 10);
       const {
         name, email, phone, address, branch_id, membership_start, membership_end,
-        total_fee, amount_paid, shift_ids, seat_id, cash, online, security_money, remark
+        total_fee, amount_paid, shift_ids, seat_id, cash, online, security_money, remark,
+        registration_number, father_name, aadhar_number
       } = req.body;
 
-      // Validate required fields
-      if (!name || !email || !phone || !address || !branch_id || !membership_start || !membership_end) {
+      // --- TYPO FIX: The validation and error message are now corrected and precise ---
+      if (!name || !phone || !address || !branch_id || !membership_start || !membership_end) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ message: 'Required fields missing (name, email, phone, address, branch_id, membership_start, membership_end)' });
+        return res.status(400).json({ message: 'Required fields missing (name, phone, address, branch_id, membership_start, membership_end)' });
       }
 
       const branchIdNum = branch_id ? parseInt(branch_id, 10) : null;
       const seatIdNum = seat_id ? parseInt(seat_id, 10) : null;
       const shiftIdsNum = shift_ids && Array.isArray(shift_ids) ? shift_ids.map(id => parseInt(id, 10)) : [];
-
-      // Fetch the current student record to preserve existing values if not provided
+      
       const currentStudentRes = await client.query(
         `SELECT total_fee, amount_paid, due_amount, cash, online, security_money 
          FROM students 
@@ -465,106 +490,36 @@ module.exports = (pool) => {
 
       const currentStudent = currentStudentRes.rows[0];
 
-      // Parse monetary fields, preserving existing values if not provided
-      const totalFeeValue = total_fee !== undefined && total_fee !== null && total_fee !== ''
-        ? parseFloat(total_fee)
-        : parseFloat(currentStudent.total_fee || 0);
-      const amountPaidValue = amount_paid !== undefined && amount_paid !== null && amount_paid !== ''
-        ? parseFloat(amount_paid)
-        : parseFloat(currentStudent.amount_paid || 0);
-      const cashValue = cash !== undefined && cash !== null && cash !== ''
-        ? parseFloat(cash)
-        : parseFloat(currentStudent.cash || 0);
-      const onlineValue = online !== undefined && online !== null && online !== ''
-        ? parseFloat(online)
-        : parseFloat(currentStudent.online || 0);
-      const securityMoneyValue = security_money !== undefined && security_money !== null && security_money !== ''
-        ? parseFloat(security_money)
-        : parseFloat(currentStudent.security_money || 0);
+      const totalFeeValue = total_fee !== undefined ? parseFloat(total_fee) : parseFloat(currentStudent.total_fee || 0);
+      const amountPaidValue = amount_paid !== undefined ? parseFloat(amount_paid) : parseFloat(currentStudent.amount_paid || 0);
+      const cashValue = cash !== undefined ? parseFloat(cash) : parseFloat(currentStudent.cash || 0);
+      const onlineValue = online !== undefined ? parseFloat(online) : parseFloat(currentStudent.online || 0);
+      const securityMoneyValue = security_money !== undefined ? parseFloat(security_money) : parseFloat(currentStudent.security_money || 0);
 
-      // Validate monetary fields
-      if (isNaN(totalFeeValue) || totalFeeValue < 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ message: 'Total fee must be a valid non-negative number' });
-      }
-      if (isNaN(amountPaidValue) || amountPaidValue < 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ message: 'Amount paid must be a valid non-negative number' });
-      }
-      if (isNaN(cashValue) || cashValue < 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ message: 'Cash must be a valid non-negative number' });
-      }
-      if (isNaN(onlineValue) || onlineValue < 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ message: 'Online payment must be a valid non-negative number' });
-      }
-      if (isNaN(securityMoneyValue) || securityMoneyValue < 0) {
-        await client.query('ROLLBACK');
-        return res.status(400).json({ message: 'Security money must be a valid non-negative number' });
-      }
-
-      // Recalculate due_amount based on the new or existing total_fee and amount_paid
       const dueAmountValue = totalFeeValue - amountPaidValue;
 
-      // Validate seat and shift assignments if provided
-      if (seatIdNum && shiftIdsNum.length > 0) {
-        // Check if seat exists
-        const seatCheck = await client.query('SELECT 1 FROM seats WHERE id = $1', [seatIdNum]);
-        if (seatCheck.rows.length === 0) {
-          await client.query('ROLLBACK');
-          return res.status(400).json({ message: `Seat with ID ${seatIdNum} does not exist` });
-        }
-
-        // Check if shifts exist
-        for (const shiftId of shiftIdsNum) {
-          const shiftCheck = await client.query('SELECT 1 FROM schedules WHERE id = $1', [shiftId]);
-          if (shiftCheck.rows.length === 0) {
-            await client.query('ROLLBACK');
-            return res.status(400).json({ message: `Shift with ID ${shiftId} does not exist` });
-          }
-        }
-
-        // Check for seat assignment conflicts
-        for (const shiftId of shiftIdsNum) {
-          const checkAssignment = await client.query(
-            'SELECT 1 FROM seat_assignments WHERE seat_id = $1 AND shift_id = $2 AND student_id != $3',
-            [seatIdNum, shiftId, id]
-          );
-          if (checkAssignment.rows.length > 0) {
-            await client.query('ROLLBACK');
-            return res.status(400).json({ message: `Seat is already assigned for shift ${shiftId}` });
-          }
-        }
-      }
-
-      // Determine the status based on membership_end date
       const status = new Date(membership_end) < new Date() ? 'expired' : 'active';
 
-      // Update the students table
       const result = await client.query(
         `UPDATE students 
          SET name = $1, email = $2, phone = $3, address = $4, branch_id = $5,
              membership_start = $6, membership_end = $7, total_fee = $8, 
              amount_paid = $9, due_amount = $10, cash = $11, online = $12, 
-             security_money = $13, remark = $14, status = $15
-         WHERE id = $16 
+             security_money = $13, remark = $14, status = $15,
+             registration_number = $16, father_name = $17, aadhar_number = $18
+         WHERE id = $19 
          RETURNING *`,
         [
           name, email, phone, address, branchIdNum, membership_start, membership_end,
           totalFeeValue, amountPaidValue, dueAmountValue, cashValue, onlineValue,
-          securityMoneyValue, remark || null, status, id
+          securityMoneyValue, remark || null, status, 
+          registration_number || null, father_name || null, aadhar_number || null,
+          id
         ]
       );
-
-      if (result.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ message: 'Student not found' });
-      }
-
+      
       const updatedStudent = result.rows[0];
-
-      // Update seat assignments if provided
+      
       let firstShiftId = null;
       if (seatIdNum && shiftIdsNum.length > 0) {
         await client.query('DELETE FROM seat_assignments WHERE student_id = $1', [id]);
@@ -573,69 +528,16 @@ module.exports = (pool) => {
             'INSERT INTO seat_assignments (seat_id, shift_id, student_id) VALUES ($1, $2, $3)',
             [seatIdNum, shiftId, id]
           );
-          if (!firstShiftId) firstShiftId = shiftId; // Take the first shift for history
+          if (!firstShiftId) firstShiftId = shiftId;
         }
       } else {
-        // If no seat or shifts are provided, clear the seat assignments
         await client.query('DELETE FROM seat_assignments WHERE student_id = $1', [id]);
       }
-
-      // Fetch the latest student_membership_history record for this student
-      const historyRes = await client.query(
-        `SELECT id 
-         FROM student_membership_history 
-         WHERE student_id = $1 
-         ORDER BY changed_at DESC 
-         LIMIT 1`,
-        [id]
-      );
-
-      if (historyRes.rows.length === 0) {
-        await client.query('ROLLBACK');
-        return res.status(404).json({ message: 'No membership history found for this student' });
-      }
-
-      const historyId = historyRes.rows[0].id;
-
-      // Update the latest student_membership_history record
-      await client.query(
-        `UPDATE student_membership_history 
-         SET name = $1, email = $2, phone = $3, address = $4,
-             membership_start = $5, membership_end = $6, status = $7,
-             total_fee = $8, amount_paid = $9, due_amount = $10,
-             cash = $11, online = $12, security_money = $13, remark = $14,
-             seat_id = $15, shift_id = $16, branch_id = $17,
-             changed_at = NOW()
-         WHERE id = $18`,
-        [
-          name, email, phone, address,
-          membership_start, membership_end, status,
-          totalFeeValue, amountPaidValue, dueAmountValue,
-          cashValue, onlineValue, securityMoneyValue, remark || '',
-          seatIdNum, firstShiftId, branchIdNum,
-          historyId
-        ]
-      );
-
-      await client.query('COMMIT'); // Commit transaction
-
-      // Return the updated student
-      res.json({ 
-        student: {
-          ...updatedStudent,
-          membership_start: new Date(updatedStudent.membership_start).toISOString().split('T')[0],
-          membership_end: new Date(updatedStudent.membership_end).toISOString().split('T')[0],
-          total_fee: parseFloat(updatedStudent.total_fee || 0),
-          amount_paid: parseFloat(updatedStudent.amount_paid || 0),
-          due_amount: parseFloat(updatedStudent.due_amount || 0),
-          cash: parseFloat(updatedStudent.cash || 0),
-          online: parseFloat(updatedStudent.online || 0),
-          security_money: parseFloat(updatedStudent.security_money || 0),
-          remark: updatedStudent.remark || '',
-        }
-      });
+      
+      await client.query('COMMIT');
+      res.json({ student: updatedStudent });
     } catch (err) {
-      await client.query('ROLLBACK'); // Roll back transaction on error
+      await client.query('ROLLBACK');
       console.error('Error updating student:', err);
       res.status(500).json({ message: 'Server error', error: err.message });
     } finally {
@@ -660,43 +562,55 @@ module.exports = (pool) => {
     }
   });
 
-  // GET dashboard stats
+  //================================================================//
+  //==               FIXED DASHBOARD STATS ROUTE                  ==//
+  //================================================================//
+  // GET dashboard stats - UPDATED
   router.get('/stats/dashboard', checkAdmin, async (req, res) => {
     try {
-      const { branchId } = req.query;
-      const branchIdNum = branchId ? parseInt(branchId, 10) : null;
-      const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-      const endOfMonth = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0);
+        const { branchId } = req.query;
+        const branchIdNum = branchId ? parseInt(branchId, 10) : null;
+        
+        // Get the first and last day of the current month
+        const now = new Date();
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-      let params = [startOfMonth, endOfMonth];
-      let totalCollectionQuery = `SELECT COALESCE(SUM(s.amount_paid), 0) AS total FROM students s WHERE s.created_at BETWEEN $1 AND $2`;
-      let totalDueQuery = `SELECT COALESCE(SUM(s.due_amount), 0) AS total FROM students s WHERE s.created_at BETWEEN $1 AND $2`;
-      let totalExpenseQuery = `SELECT COALESCE(SUM(e.amount), 0) AS total FROM expenses e WHERE e.date BETWEEN $1 AND $2`;
+        let params = [startOfMonth, endOfMonth];
+        
+        // --- FIX: Queries now use the 'student_membership_history' table and 'changed_at' date ---
+        let totalCollectionQuery = `SELECT COALESCE(SUM(h.amount_paid), 0) AS total FROM student_membership_history h WHERE h.changed_at BETWEEN $1 AND $2`;
+        let totalDueQuery = `SELECT COALESCE(SUM(h.due_amount), 0) AS total FROM student_membership_history h WHERE h.changed_at BETWEEN $1 AND $2`;
+        // --- END FIX ---
 
-      if (branchIdNum) {
-        totalCollectionQuery += ` AND s.branch_id = $3`;
-        totalDueQuery += ` AND s.branch_id = $3`;
-        totalExpenseQuery += ` AND e.branch_id = $3`;
-        params.push(branchIdNum);
-      }
+        // Query for Total Expense remains the same
+        let totalExpenseQuery = `SELECT COALESCE(SUM(e.amount), 0) AS total FROM expenses e WHERE e.date BETWEEN $1 AND $2`;
 
-      const totalCollectionResult = await pool.query(totalCollectionQuery, params);
-      const totalDueResult = await pool.query(totalDueQuery, params);
-      const totalExpenseResult = await pool.query(totalExpenseQuery, params);
+        if (branchIdNum) {
+            // Use 'h.branch_id' for history-based queries
+            totalCollectionQuery += ` AND h.branch_id = $3`;
+            totalDueQuery += ` AND h.branch_id = $3`;
+            totalExpenseQuery += ` AND e.branch_id = $3`;
+            params.push(branchIdNum);
+        }
 
-      const totalCollection = parseFloat(totalCollectionResult.rows[0].total);
-      const totalExpense = parseFloat(totalExpenseResult.rows[0].total);
-      const profitLoss = totalCollection - totalExpense;
+        const totalCollectionResult = await pool.query(totalCollectionQuery, params);
+        const totalDueResult = await pool.query(totalDueQuery, params);
+        const totalExpenseResult = await pool.query(totalExpenseQuery, params);
 
-      res.json({
-        totalCollection: totalCollection,
-        totalDue: parseFloat(totalDueResult.rows[0].total),
-        totalExpense: totalExpense,
-        profitLoss: profitLoss
-      });
+        const totalCollection = parseFloat(totalCollectionResult.rows[0].total);
+        const totalExpense = parseFloat(totalExpenseResult.rows[0].total);
+        const profitLoss = totalCollection - totalExpense;
+
+        res.json({
+            totalCollection: totalCollection,
+            totalDue: parseFloat(totalDueResult.rows[0].total),
+            totalExpense: totalExpense,
+            profitLoss: profitLoss
+        });
     } catch (err) {
-      console.error('Error in students/stats/dashboard route:', err.stack);
-      res.status(500).json({ message: 'Server error', error: err.message });
+        console.error('Error in students/stats/dashboard route:', err.stack);
+        res.status(500).json({ message: 'Server error', error: err.message });
     }
   });
 
@@ -799,14 +713,16 @@ module.exports = (pool) => {
           total_fee, amount_paid, due_amount,
           cash, online, security_money, remark,
           seat_id, shift_id, branch_id,
+          registration_number, father_name, aadhar_number,
           changed_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, NOW())`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW())`,
         [
           updated.id, updated.name, updated.email, updated.phone, updated.address,
           updated.membership_start, updated.membership_end, updated.status,
           updated.total_fee, updated.amount_paid, updated.due_amount,
           updated.cash, updated.online, updated.security_money, updated.remark || '',
-          seatIdNum, firstShiftId, branchIdNum
+          seatIdNum, firstShiftId, branchIdNum,
+          updated.registration_number, updated.father_name, updated.aadhar_number,
         ]
       );
 

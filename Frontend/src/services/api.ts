@@ -33,6 +33,9 @@ interface Student {
   email: string;
   phone: string;
   address: string;
+  registrationNumber?: string | null;
+  fatherName?: string | null;
+  aadharNumber?: string | null;
   branchId: number;
   branchName?: string;
   membershipStart: string;
@@ -451,13 +454,16 @@ const api = {
     email: string;
     phone: string;
     address: string;
+    registrationNumber?: string;
+    fatherName?: string;
+    aadharNumber?: string;
     branchId: number;
     membershipStart: string;
     membershipEnd: string;
     totalFee: number;
     amountPaid: number;
     shiftIds: number[];
-    seatId: number;
+    seatId?: number;
     cash?: number;
     online?: number;
     securityMoney?: number;
@@ -494,13 +500,16 @@ const api = {
       email: string;
       phone: string;
       address: string;
+      registrationNumber?: string;
+      fatherName?: string;
+      aadharNumber?: string;
       branchId: number;
       membershipStart: string;
       membershipEnd: string;
       totalFee: number;
       amountPaid: number;
       shiftIds: number[];
-      seatId: number;
+      seatId?: number;
     }
   ): Promise<{ student: Student }> => {
     const response = await apiClient.put(`/students/${id}`, studentData);

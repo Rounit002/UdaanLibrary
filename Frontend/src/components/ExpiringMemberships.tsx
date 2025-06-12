@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import api from '../services/api';
-import { AlertCircle, ChevronRight, Trash2, Eye, ChevronLeft } from 'lucide-react';
+import { AlertCircle, ChevronRight, Trash2, Eye, ChevronLeft, MessageSquare } from 'lucide-react';
 
 const formatDate = (dateString: string | undefined): string => {
   if (!dateString) return 'N/A';
@@ -32,39 +32,14 @@ const ExpiringMemberships: React.FC<ExpiringMembershipsProps> = ({ limit, select
 
   useEffect(() => {
     const fetchStudents = async () => {
+      setLoading(true);
       try {
-        const response = await api.getStudents(undefined, undefined, selectedBranchId ?? undefined);
+        // Refactored to use the more direct API endpoint for expiring students
+        const response = await api.getExpiringSoon(selectedBranchId ?? undefined);
         if (!response || !Array.isArray(response.students)) {
-          throw new Error('Invalid students data');
+          throw new Error('Invalid data received for expiring students');
         }
-
-        const currentDate = new Date();
-        const fiveDaysFromNow = new Date();
-        fiveDaysFromNow.setDate(currentDate.getDate() + 5);
-
-        const updatedStudents = response.students.map((student: any) => {
-          const membershipEndDate = student.membershipEnd ? new Date(student.membershipEnd) : null;
-          const isExpired = membershipEndDate && membershipEndDate < currentDate;
-          return {
-            ...student,
-            id: Number(student.id), // Ensure ID is a number
-            status: isExpired ? 'expired' : student.status || 'active',
-            membershipEnd: student.membershipEnd || '',
-          };
-        });
-
-        const expiringStudents = updatedStudents.filter((student: Student) => {
-          const membershipEndDate = student.membershipEnd ? new Date(student.membershipEnd) : null;
-          return (
-            membershipEndDate &&
-            membershipEndDate > currentDate &&
-            membershipEndDate <= fiveDaysFromNow &&
-            student.status === 'active'
-          );
-        });
-
-        setStudents(expiringStudents);
-        setLoading(false);
+        setStudents(response.students);
       } catch (error: any) {
         if (error.response && error.response.status === 401) {
           toast.error('Session expired. Please log in again.');
@@ -73,13 +48,32 @@ const ExpiringMemberships: React.FC<ExpiringMembershipsProps> = ({ limit, select
           console.error('Failed to fetch expiring memberships:', error.message);
           toast.error('Failed to fetch expiring memberships');
         }
-        setStudents([]); // Fallback to empty array
+        setStudents([]); // Fallback to empty array on error
+      } finally {
         setLoading(false);
       }
     };
 
     fetchStudents();
   }, [navigate, selectedBranchId]);
+
+  /**
+   * Handles the click on the WhatsApp icon.
+   * Formats the phone number and opens the WhatsApp chat link.
+   */
+  const handleWhatsAppClick = (phoneNumber: string) => {
+    if (!phoneNumber) {
+      toast.error('No phone number available for this student.');
+      return;
+    }
+    // Cleans the number and prepends Indian country code if it's a 10-digit number
+    let cleanedNumber = phoneNumber.replace(/\D/g, '');
+    if (cleanedNumber.length === 10) {
+      cleanedNumber = `91${cleanedNumber}`;
+    }
+    const whatsappUrl = `https://wa.me/${cleanedNumber}`;
+    window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+  };
 
   const handleDelete = async (id: number) => {
     if (window.confirm('Are you sure you want to delete this student?')) {
@@ -143,14 +137,23 @@ const ExpiringMemberships: React.FC<ExpiringMembershipsProps> = ({ limit, select
                     <button
                       onClick={() => handleViewDetails(student.id)}
                       className="mr-2 text-blue-600 hover:text-blue-800 p-2"
+                      title="View student details"
                     >
                       <Eye size={16} />
                     </button>
                     <button
                       onClick={() => handleDelete(student.id)}
-                      className="text-red-600 hover:text-red-800 p-2"
+                      className="mr-2 text-red-600 hover:text-red-800 p-2"
+                      title="Delete student"
                     >
                       <Trash2 size={16} />
+                    </button>
+                    <button
+                      onClick={() => handleWhatsAppClick(student.phone)}
+                      className="text-green-600 hover:text-green-800 p-2"
+                      title={`Send WhatsApp message to ${student.name}`}
+                    >
+                      <MessageSquare size={16} />
                     </button>
                   </td>
                 </tr>
@@ -160,7 +163,7 @@ const ExpiringMemberships: React.FC<ExpiringMembershipsProps> = ({ limit, select
         </div>
       ) : (
         <div className="p-8 text-center text-gray-500">
-          No memberships expiring in the next 5 days.
+          No memberships expiring soon.
         </div>
       )}
 

@@ -11,6 +11,9 @@ import UdaanLibrary from "./UdaanLibrary.jpg";
 interface Student {
   id: number;
   name: string;
+  registrationNumber?: string | null;
+  fatherName?: string | null;
+  aadharNumber?: string | null;
   email: string;
   phone: string;
   address: string;
@@ -206,6 +209,18 @@ const StudentDetails: React.FC = () => {
                   <div>
                     <h2 className="text-lg font-medium">Name</h2>
                     <p className="text-gray-600">{student.name || 'Unknown'}</p>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-medium">Registration Number</h2>
+                    <p className="text-gray-600">{student.registrationNumber || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-medium">Father's Name</h2>
+                    <p className="text-gray-600">{student.fatherName || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-medium">Aadhar Number</h2>
+                    <p className="text-gray-600">{student.aadharNumber || 'N/A'}</p>
                   </div>
                   <div>
                     <h2 className="text-lg font-medium">Email</h2>
