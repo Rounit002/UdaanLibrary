@@ -4,7 +4,7 @@ const session = require('express-session');
 const bcrypt = require('bcrypt');
 const { Pool } = require('pg');
 const path = require('path');
-const cors = require('cors');
+const cors =require('cors');
 const pgSession = require('connect-pg-simple')(session);
 const fs = require('fs');
 const cloudinary = require('cloudinary').v2;
@@ -200,8 +200,6 @@ const branchesRoutes = initializeRoute('./routes/branches', pool);
 const productsRoutes = initializeRoute('./routes/products', pool);
 
 app.use('/api/auth', authRoutes);
-// FIX: Removed 'checkAdmin' middleware to allow authenticated users to access their own profile.
-// The specific admin routes within 'userRoutes' are already protected internally.
 app.use('/api/users', authenticateUser, userRoutes);
 app.use('/api/students', authenticateUser, checkAdminOrStaff, studentRoutes);
 app.use('/api/schedules', authenticateUser, checkAdminOrStaff, scheduleRoutes);
@@ -266,15 +264,15 @@ const PORT_NUM = process.env.PORT || 3000;
     } else {
         logger.warn('setupCronJobs is not a function, cron jobs not started.');
     }
-    const server = app.listen(PORT_NUM, '0.0.0.0', () => { // Assign app.listen to 'server'
+    const server = app.listen(PORT_NUM, '0.0.0.0', () => {
       logger.info(`Server running on port ${PORT_NUM}`);
     });
 
     // *** FIX STARTS HERE ***
-    // Set a longer keep-alive timeout to prevent premature connection closing
-    // Your frontend polls every 30s, so this should be > 30s. 65s is a safe value.
+    // Set a longer keep-alive timeout to prevent premature connection closing.
+    // Your frontend polls every 30s, so this timeout should be > 30s. 65s is a safe value.
     server.keepAliveTimeout = 65000; // 65 seconds
-    server.headersTimeout = 70000;   // 70 seconds
+    server.headersTimeout = 70000;   // 70 seconds (must be >= keepAliveTimeout)
     // *** FIX ENDS HERE ***
 
   } catch (err) {
