@@ -1,3 +1,4 @@
+// File: students.js
 module.exports = (pool) => {
   const router = require('express').Router();
   const { checkAdmin, checkAdminOrStaff } = require('./auth');
@@ -462,18 +463,32 @@ if (shiftIdsNum.length > 0) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-
       const id = parseInt(req.params.id, 10);
       
+      // FIX: Destructuring snake_case keys from the request body.
       const {
-        name, email, phone, address, branch_id, membership_start, membership_end,
-        total_fee, amount_paid, shift_ids, seat_id, cash, online, security_money, remark,
-        registration_number, father_name, aadhar_number, profile_image_url
+        name, email, phone, address, 
+        branch_id, 
+        membership_start, 
+        membership_end,
+        total_fee, 
+        amount_paid, 
+        shift_ids, 
+        seat_id, 
+        cash, 
+        online, 
+        security_money, 
+        remark,
+        registration_number, 
+        father_name, 
+        aadhar_number, 
+        profile_image_url
       } = req.body;
       
+      // The validation now correctly checks for the presence of snake_cased keys.
       if (!name || !phone || !address || !branch_id || !membership_start || !membership_end) {
         await client.query('ROLLBACK');
-        return res.status(400).json({ message: 'Required fields missing (name, phone, address, branchId, membershipStart, membershipEnd)' });
+        return res.status(400).json({ message: 'Required fields missing: Name, Phone, Address, Branch, and Membership Dates are required.' });
       }
 
       const seatIdNum = seat_id ? parseInt(seat_id, 10) : null;
@@ -511,31 +526,34 @@ if (shiftIdsNum.length > 0) {
       let firstShiftId = null;
       // Update seat assignments
       await client.query('DELETE FROM seat_assignments WHERE student_id = $1', [id]);
-      if (seatIdNum && shiftIdsNum.length > 0) {
+      if (shiftIdsNum.length > 0) { // No check for seatIdNum here, allows assigning shift without a seat
         for (const shiftId of shiftIdsNum) {
           await client.query(
             'INSERT INTO seat_assignments (seat_id, shift_id, student_id) VALUES ($1, $2, $3)',
-            [seatIdNum, shiftId, id]
+            [seatIdNum, shiftId, id] // seatIdNum can be null
           );
           if (!firstShiftId) firstShiftId = shiftId;
         }
       }
       
-      // Step 2: Directly UPDATE the history table, assuming the record exists
+      // Step 2: Log the change to the history table
       await client.query(
-        `UPDATE student_membership_history
-         SET name = $1, email = $2, phone = $3, address = $4, membership_start = $5, membership_end = $6, status = $7,
-             total_fee = $8, amount_paid = $9, due_amount = $10, cash = $11, online = $12, security_money = $13,
-             remark = $14, seat_id = $15, shift_id = $16, branch_id = $17, registration_number = $18,
-             father_name = $19, aadhar_number = $20, changed_at = NOW()
-         WHERE student_id = $21`,
+        `INSERT INTO student_membership_history (
+            student_id, name, email, phone, address,
+            membership_start, membership_end, status,
+            total_fee, amount_paid, due_amount,
+            cash, online, security_money, remark,
+            seat_id, shift_id, branch_id,
+            registration_number, father_name, aadhar_number,
+            changed_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, NOW())`,
          [
-           updatedStudent.name, updatedStudent.email, updatedStudent.phone, updatedStudent.address,
+           updatedStudent.id, updatedStudent.name, updatedStudent.email, updatedStudent.phone, updatedStudent.address,
            updatedStudent.membership_start, updatedStudent.membership_end, updatedStudent.status,
            updatedStudent.total_fee, updatedStudent.amount_paid, updatedStudent.due_amount,
            updatedStudent.cash, updatedStudent.online, updatedStudent.security_money, updatedStudent.remark || '',
            seatIdNum, firstShiftId, updatedStudent.branch_id, updatedStudent.registration_number,
-           updatedStudent.father_name, updatedStudent.aadhar_number, id
+           updatedStudent.father_name, updatedStudent.aadhar_number,
          ]
       );
       
@@ -620,91 +638,104 @@ if (shiftIdsNum.length > 0) {
     }
   });
 
-  // POST renew a student's membership
+  //================================================================//
+  //==               FIXED RENEW MEMBERSHIP ROUTE                 ==//
+  //================================================================//
   router.post('/:id/renew', checkAdmin, async (req, res) => {
+    const client = await pool.connect(); // Use transaction for multi-step operation
     try {
+      await client.query('BEGIN');
       const id = parseInt(req.params.id, 10);
+
+      // FIX START: Destructure snake_case keys from req.body and rename them to camelCase
       const {
-        membership_start, membership_end, email, phone, branch_id, seat_id, shift_ids,
-        total_fee, cash, online, security_money, remark
+        name,
+        registration_number: registrationNumber,
+        father_name: fatherName,
+        aadhar_number: aadharNumber,
+        address,
+        membership_start: membershipStart,
+        membership_end: membershipEnd,
+        email,
+        phone,
+        branch_id: branchId,
+        shift_ids: shiftIds,
+        seat_id: seatId,
+        total_fee: totalFee,
+        cash,
+        online,
+        security_money: securityMoney,
+        remark
       } = req.body;
+      // FIX END
 
-      if (!membership_start || !membership_end) {
-        return res.status(400).json({ message: 'membership_start and membership_end are required' });
+      // The rest of the function uses the camelCase variables, which are now correctly populated.
+      if (!membershipStart || !membershipEnd || !name || !phone || !branchId) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ message: 'Required fields are missing' });
       }
 
-      const branchIdNum = branch_id ? parseInt(branch_id, 10) : null;
-      const seatIdNum = seat_id ? parseInt(seat_id, 10) : null;
-      const shiftIdsNum = shift_ids && Array.isArray(shift_ids) ? shift_ids.map(id => parseInt(id, 10)) : [];
+      const branchIdNum = parseInt(branchId, 10);
+      const seatIdNum = seatId ? parseInt(seatId, 10) : null;
+      const shiftIdsNum = shiftIds && Array.isArray(shiftIds) ? shiftIds.map(sId => parseInt(sId, 10)) : [];
 
-      const cur = await pool.query('SELECT * FROM students WHERE id = $1', [id]);
-      if (!cur.rows[0]) {
-        return res.status(404).json({ message: 'Student not found' });
-      }
-      const old = cur.rows[0];
-
-      const feeValue = parseFloat(total_fee || old.total_fee || 0);
-      if (isNaN(feeValue) || feeValue < 0) {
-        return res.status(400).json({ message: 'Total fee must be a valid non-negative number' });
-      }
+      // Fee calculations
+      const feeValue = parseFloat(totalFee || 0);
       const cashValue = parseFloat(cash || 0);
       const onlineValue = parseFloat(online || 0);
-      const securityMoneyValue = parseFloat(security_money || old.security_money || 0);
-      if (isNaN(cashValue) || cashValue < 0) {
-        return res.status(400).json({ message: 'Cash must be a valid non-negative number' });
-      }
-      if (isNaN(onlineValue) || onlineValue < 0) {
-        return res.status(400).json({ message: 'Online payment must be a valid non-negative number' });
-      }
-      if (isNaN(securityMoneyValue) || securityMoneyValue < 0) {
-        return res.status(400).json({ message: 'Security money must be a valid non-negative number' });
-      }
-
+      const securityMoneyValue = parseFloat(securityMoney || 0);
       const amount_paid = cashValue + onlineValue;
-      const due = feeValue - amount_paid;
+      const due_amount = feeValue - amount_paid;
+      const status = new Date(membershipEnd) < new Date() ? 'expired' : 'active';
 
+      // Seat conflict check (only if a specific seat is being assigned)
       if (seatIdNum && shiftIdsNum.length > 0) {
         for (const shiftId of shiftIdsNum) {
-          const checkAssignment = await pool.query(
+          const checkAssignment = await client.query(
             'SELECT 1 FROM seat_assignments WHERE seat_id = $1 AND shift_id = $2 AND student_id != $3',
             [seatIdNum, shiftId, id]
           );
           if (checkAssignment.rows.length > 0) {
+            await client.query('ROLLBACK');
             return res.status(400).json({ message: `Seat is already assigned for shift ${shiftId}` });
           }
         }
       }
 
-      const upd = await pool.query(
+      // Update the student record with all data from the form
+      const upd = await client.query(
         `UPDATE students
-         SET membership_start = $1,
-             membership_end   = $2,
-             status           = 'active',
-             email            = COALESCE($3, email),
-             phone            = COALESCE($4, phone),
-             branch_id        = COALESCE($5, branch_id),
-             total_fee        = $6,
-             amount_paid      = $7,
-             due_amount       = $8,
-             cash             = $9,
-             online           = $10,
-             security_money   = $11,
-             remark           = $12
-         WHERE id = $13
+         SET name = $1, registration_number = $2, father_name = $3, aadhar_number = $4, address = $5,
+             membership_start = $6, membership_end = $7, status = $8,
+             email = $9, phone = $10, branch_id = $11,
+             total_fee = $12, amount_paid = $13, due_amount = $14,
+             cash = $15, online = $16, security_money = $17, remark = $18
+         WHERE id = $19
          RETURNING *`,
         [
-          membership_start, membership_end, email, phone, branchIdNum,
-          feeValue, amount_paid, due, cashValue, onlineValue,
-          securityMoneyValue, remark || null, id
+          name, registrationNumber, fatherName, aadharNumber, address,
+          membershipStart, membershipEnd, status,
+          email, phone, branchIdNum,
+          feeValue, amount_paid, due_amount,
+          cashValue, onlineValue, securityMoneyValue, remark || null,
+          id
         ]
       );
+
+      if (upd.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ message: 'Student not found' });
+      }
       const updated = upd.rows[0];
 
+      // Correctly update seat assignments
       let firstShiftId = null;
-      if (seatIdNum && shiftIdsNum.length > 0) {
-        await pool.query('DELETE FROM seat_assignments WHERE student_id = $1', [id]);
+      await client.query('DELETE FROM seat_assignments WHERE student_id = $1', [id]);
+      
+      // THIS IS THE FIX: Create new assignments if shifts are provided, even if seat is "None" (null)
+      if (shiftIdsNum.length > 0) {
         for (const shiftId of shiftIdsNum) {
-          await pool.query(
+          await client.query(
             'INSERT INTO seat_assignments (seat_id, shift_id, student_id) VALUES ($1, $2, $3)',
             [seatIdNum, shiftId, id]
           );
@@ -712,7 +743,8 @@ if (shiftIdsNum.length > 0) {
         }
       }
 
-      await pool.query(
+      // Log the renewal to the history table
+      await client.query(
         `INSERT INTO student_membership_history (
           student_id, name, email, phone, address,
           membership_start, membership_end, status,
@@ -732,6 +764,7 @@ if (shiftIdsNum.length > 0) {
         ]
       );
 
+      await client.query('COMMIT');
       res.json({
         message: 'Membership renewed',
         student: {
@@ -746,8 +779,13 @@ if (shiftIdsNum.length > 0) {
         }
       });
     } catch (err) {
+      await client.query('ROLLBACK');
       console.error('Error in students/:id/renew route:', err.stack);
       res.status(500).json({ message: 'Server error', error: err.message });
+    } finally {
+        if (client) {
+            client.release();
+        }
     }
   });
 

@@ -125,22 +125,22 @@ const transformKeysToCamelCase = (obj: any): any => {
   return obj;
 };
 
+// FIX START: Corrected the logic to reliably convert all keys to snake_case.
 const transformKeysToSnakeCase = (obj: any): any => {
   if (Array.isArray(obj)) {
     return obj.map((item) => transformKeysToSnakeCase(item));
   } else if (obj && typeof obj === 'object' && obj !== null) {
     const newObj: any = {};
     for (const [key, value] of Object.entries(obj)) {
-      let newKey = key;
-      if (!/^[a-z_]+$/.test(key)) {
-        newKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
-      }
+      // Removed the faulty 'if' condition to ensure every key is processed.
+      const newKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
       newObj[newKey] = transformKeysToSnakeCase(value);
     }
     return newObj;
   }
   return obj;
 };
+// FIX END
 
 apiClient.interceptors.request.use((config) => {
   if (config.data && typeof config.data === 'object' && !(config.data instanceof FormData)) {
@@ -529,14 +529,19 @@ const api = {
   renewStudent: async (
     id: number,
     membershipData: {
+      name: string;
+      registrationNumber?: string;
+      fatherName?: string;
+      aadharNumber?: string;
+      address: string;
+      email: string;
+      phone: string;
+      branchId: number;
       membershipStart: string;
       membershipEnd: string;
-      email?: string;
-      phone?: string;
-      branchId?: number;
+      shiftIds: number[];
       seatId?: number;
-      shiftIds?: number[];
-      totalFee?: number;
+      totalFee: number;
       cash?: number;
       online?: number;
       securityMoney?: number;
