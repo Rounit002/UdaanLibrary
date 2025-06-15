@@ -200,7 +200,9 @@ const branchesRoutes = initializeRoute('./routes/branches', pool);
 const productsRoutes = initializeRoute('./routes/products', pool);
 
 app.use('/api/auth', authRoutes);
-app.use('/api/users', authenticateUser, checkAdmin, userRoutes);
+// FIX: Removed 'checkAdmin' middleware to allow authenticated users to access their own profile.
+// The specific admin routes within 'userRoutes' are already protected internally.
+app.use('/api/users', authenticateUser, userRoutes);
 app.use('/api/students', authenticateUser, checkAdminOrStaff, studentRoutes);
 app.use('/api/schedules', authenticateUser, checkAdminOrStaff, scheduleRoutes);
 app.use('/api/seats', authenticateUser, checkAdminOrStaff, seatsRoutes);

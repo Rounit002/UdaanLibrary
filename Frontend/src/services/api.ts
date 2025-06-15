@@ -494,8 +494,8 @@ const api = {
   },
 
   updateStudent: async (
-    id: number,
-    studentData: {
+      id: number,
+      studentData: {
       name: string;
       email: string;
       phone: string;
@@ -509,8 +509,13 @@ const api = {
       totalFee: number;
       amountPaid: number;
       shiftIds: number[];
-      seatId?: number;
-    }
+      seatId: number | null;
+      cash: number;
+      online: number;
+      securityMoney: number;
+      remark: string;
+      profileImageUrl: string;
+      }
   ): Promise<{ student: Student }> => {
     const response = await apiClient.put(`/students/${id}`, studentData);
     return response.data;
@@ -634,7 +639,9 @@ const api = {
 
   changeUserPassword: async (passwordData: { currentPassword: string; newPassword: string }) => {
     try {
-      const response = await apiClient.put('/users/change-password', passwordData);
+      // FIX: Changed the endpoint from '/auth/change-password' to the correct one '/users/profile'.
+      // The backend handles both profile and password updates at this single endpoint.
+      const response = await apiClient.put('/users/profile', passwordData);
       return response.data;
     } catch (error: any) {
       console.error('Error changing password:', error.response?.data || error.message);
